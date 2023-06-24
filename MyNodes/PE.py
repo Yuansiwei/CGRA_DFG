@@ -38,7 +38,7 @@ class PENode(Node, MyCustomTreeNode):
         
         
     # 自定义节点属性，可用于定义节点时传参        
-    opcode: bpy.props.StringProperty(name='opcode')
+    opcode: bpy.props.StringProperty(name='opcode',default="nop")
     note: bpy.props.StringProperty(name='note')
     index: bpy.props.IntProperty(name='pe index',default=0,update=out_update)
     reg0: bpy.props.StringProperty(name='reg0',default='null')
@@ -81,7 +81,10 @@ class PENode(Node, MyCustomTreeNode):
     has_moved_reg:bpy.props.BoolProperty(name='has_moved_reg', default=False)
     
     
-    partition_times:bpy.props.IntProperty(name='partition_times',default=0)
+    partition_times:bpy.props.IntProperty(name='partition_times',default=1)
+    
+    placement: bpy.props.StringProperty(name='placement',default='null')
+    target_last:bpy.props.IntProperty(name='target_last',default=2)
     def init(self, context):
         self.inputs.new('_Port', "in0")
         self.inputs.new('_Port', "in1")
@@ -109,13 +112,15 @@ class PENode(Node, MyCustomTreeNode):
         
         layout.prop(self, "branch")
         layout.prop(self, "loop")
+        if self.loop=="transout":
+             layout.prop(self, "target_last")
         layout.prop(self, "self_loop")
         layout.prop(self, "is_float")
         layout.prop(self, "key_cal")
         #layout.prop(self, "reg0")
         #layout.prop(self, "reg1")
         #layout.prop(self, "reg2")
-
+        layout.prop(self, "placement")
     def draw_buttons_ext(self, context, layout):
         layout.prop(self, "opcode")
         layout.prop(self, "index")
@@ -123,20 +128,25 @@ class PENode(Node, MyCustomTreeNode):
         
         layout.prop(self, "branch")
         layout.prop(self, "loop")
+        if self.loop=="transout":
+             layout.prop(self, "target_last")
         layout.prop(self, "self_loop")
         layout.prop(self, "is_float")
         layout.prop(self, "key_cal")
         #layout.prop(self, "reg0")
         #layout.prop(self, "reg1")
         #layout.prop(self, "reg2")
+        layout.prop(self, "placement")
 
 
     def draw_label(self):
         note='('+self.note+')'
         if self.note=='':
             note=''
+        if self.placement!="null":
+            return "pe"+str(self.index)+'  '+self.opcode+'  '+note+' '+F'[{self.placement}]'
+        
         return "pe"+str(self.index)+'  '+self.opcode+'  '+note
-    
     
             
     loop_level: bpy.props.IntProperty(name='loop_level',default=0)
@@ -196,8 +206,8 @@ class PENode(Node, MyCustomTreeNode):
         self.delay_level=delay_level+1
         if self.loop=="last_match0" or self.loop=="last_match1":
             self.loop_level=self.loop_level-1
-        elif self.loop=="transout" and self.inputs['in2'].is_linked:
-            self.loop_level=self.inputs['in2'].default_value.loop_level
+        elif self.loop=="transout" :
+            self.loop_level=self.target_last-1
         #self.outputs['out'].default_value.index= self.index
         #self.outputs['out'].default_value.type='pe'
         #self.outputs['out'].default_value.loop_level=self.loop_level
@@ -236,8 +246,9 @@ class PENode(Node, MyCustomTreeNode):
             in0_index=self.inputs['in0']. default_value.index
             in0=F'<input type="{type_change[in0_type]}" index="{in0_index}" port="0"/>'
             if(in0_type=="AG_IN" ):
+                rdfifo_start=self.inputs['in0'].links[0].from_socket.node.rdfifo_start
                 in0_port=self.inputs['in0']. default_value.port
-                in0=F'<input type="{type_change[in0_type]}" index="{in0_index+in0_port}" port="0"/>'
+                in0=F'''<input type="{type_change[in0_type]}" index="{rdfifo_start+in0_port}" port="{self.inputs['in0'].rdfifo_port}"/>'''
         if self.inputs['in1'].is_linked:
             buffer1_from="in1"
             in1_type=self.inputs['in1']. default_value.type
@@ -245,7 +256,8 @@ class PENode(Node, MyCustomTreeNode):
             in1_port=self.inputs['in1']. default_value.port
             in1=F'<input type="{type_change[in1_type]}" index="{in1_index}" port="0"/>'
             if(in1_type=="AG_IN" ):
-                in1=F'<input type="{type_change[in1_type]}" index="{in1_index+in1_port}" port="0"/>'
+                rdfifo_start=self.inputs['in1'].links[0].from_socket.node.rdfifo_start
+                in1=F'''<input type="{type_change[in1_type]}" index="{rdfifo_start+in1_port}" port="{self.inputs['in1'].rdfifo_port}"/>'''
         if self.inputs['in2'].is_linked:
             buffer2_from="in2"
             in2_type=self.inputs['in2']. default_value.type
@@ -254,8 +266,8 @@ class PENode(Node, MyCustomTreeNode):
             in2=F'<input type="{type_change[in2_type]}" index="{in2_index}" port="0"/>'
            
             if(in2_type=="AG_IN"):
-                #print(in2_index)
-                in2=F'<input type="{type_change[in2_type]}" index="{in2_index+in2_port}" port="0"/>'
+                rdfifo_start=self.inputs['in2'].links[0].from_socket.node.rdfifo_start
+                in2=F'''<input type="{type_change[in2_type]}" index="{rdfifo_start+in2_port}" port="{self.inputs['in2'].rdfifo_port}"/>'''
         
         is_float="false"
         if(self.is_float==True):
@@ -291,9 +303,6 @@ class PENode(Node, MyCustomTreeNode):
             if self.loop_level<self.inputs['in0']. default_value.loop_level:
                 buffer0_constant="false"
                 buffer0_mode="buffer"
-            else:
-                buffer0_constant="true"
-                buffer0_mode="keep"
         elif self.inputs['in0'].is_linked and self.loop_level==self.inputs['in0']. default_value.loop_level:
             buffer0_constant="false"
             buffer0_mode="buffer"
@@ -311,9 +320,6 @@ class PENode(Node, MyCustomTreeNode):
             if  self.loop_level<self.inputs['in1']. default_value.loop_level:
                   buffer1_constant="false"
                   buffer1_mode="buffer"
-            else:
-                  buffer1_constant="true"
-                  buffer1_mode="keep"
         elif self.inputs['in1'].is_linked and self.loop_level==self.inputs['in1']. default_value.loop_level:
             buffer1_constant="false"
             buffer1_mode="buffer"
@@ -335,9 +341,6 @@ class PENode(Node, MyCustomTreeNode):
             if self.loop_level<self.inputs['in2']. default_value.loop_level:
                 buffer2_constant="false"
                 buffer2_mode="buffer"
-            else:
-                buffer2_constant="true"
-                buffer2_mode="keep"
         elif self.inputs['in2'].is_linked and self.loop_level==self.inputs['in2']. default_value.loop_level:
             buffer2_constant="false"
             buffer2_mode="buffer"
@@ -358,8 +361,8 @@ class PENode(Node, MyCustomTreeNode):
             if loop_control=="last_match0" or loop_control=="last_match1":
                 
                 outbuffer=self.loop_level+1
-            elif loop_control=="transout" and self.inputs['in2'].is_linked:
-                outbuffer=self.inputs['in2']. default_value.loop_level+1
+            elif loop_control=="transout" :
+                outbuffer=self.target_last
             domain=0
             for input in self.inputs:
                 domain=max(input.default_value.domain,domain)
@@ -386,7 +389,7 @@ class PENode(Node, MyCustomTreeNode):
     {in2}
     <inbuffer value0="{reg0_xml}" value1="{reg1_xml}" value2="{reg2_xml}"/>
     <outbuffer value="{outbuffer}"/>
-    <placement cord="[0, 0]"/>
+    <placement cord="[{self.placement}]"/>
 </node>
 '''
         else:
@@ -409,7 +412,7 @@ class PENode(Node, MyCustomTreeNode):
     <reg value="{reg0_xml}"/>
     <reg value="{reg1_xml}"/>
     <reg value="{reg2_xml}"/>
-    <placement cord="[0, 0]"/>
+    <placement cord="[{self.placement}]"/>
 </node>
 '''
 

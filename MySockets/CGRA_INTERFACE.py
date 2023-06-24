@@ -1,4 +1,3 @@
-# 字符串组件
 
 import bpy
 from bpy.types import NodeSocket
@@ -49,11 +48,12 @@ class PortSocket(NodeSocket):
     reg_val:bpy.props.StringProperty(name='reg_val',default='null')
     
     belong_to_LOOP:bpy.props.BoolProperty(name='belong_to_LOOP',default=False)
-    
+    rdfifo_port:bpy.props.IntProperty(name='rdfifo_port',default=0,min=0,max=7)
     # 用于绘制在节点框里显示的文本【可选】
     def draw(self, context, layout, node, text):
         if self.is_linked and self.default_value.type=="AG_IN":
             layout.label(text=f'{self.default_value.type}.{self.default_value.index}.{self.default_value.port}')
+            layout.prop(self, "rdfifo_port",text="port")
         elif self.is_linked:
             layout.label(text=f'{self.default_value.type}.{self.default_value.index}')
         elif self.belong_to_LOOP:

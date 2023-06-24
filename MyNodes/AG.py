@@ -47,7 +47,7 @@ class AG_INNode(Node, MyCustomTreeNode):
     # 自定义节点属性，可用于定义节点时传参
     
     
-    index: bpy.props.IntProperty(name='ag index',default=0,update=out_update)
+    index: bpy.props.IntProperty(name='ag index',default=0,update=out_update,min=0,max=7)
     
     
     reg0: bpy.props.StringProperty(name='reg0',default='null')
@@ -123,6 +123,10 @@ class AG_INNode(Node, MyCustomTreeNode):
     max_loop_level:bpy.props.IntProperty(name='max_loop_level',default=0)
     
     ######################################################################
+    placement: bpy.props.StringProperty(name='placement',default='null')
+    fifo_placement:bpy.props.StringProperty(name='fifo_placement',default='')
+    
+    rdfifo_start:bpy.props.IntProperty(name='rdfifo_start',default=0)
     def init(self, context):
         self.inputs.new('_Port', "in0")
         self.inputs.new('_Port', "in1")
@@ -177,6 +181,7 @@ class AG_INNode(Node, MyCustomTreeNode):
             layout.prop(self, "bank_num")
             layout.prop(self, "multi_in0")
             layout.prop(self, "multi_in1")
+        layout.prop(self, "placement")
     def draw_buttons_ext(self, context, layout):
         layout.prop(self, "note")
         layout.prop(self, "index")
@@ -212,12 +217,14 @@ class AG_INNode(Node, MyCustomTreeNode):
             layout.prop(self, "bank_num")
             layout.prop(self, "multi_in0")
             layout.prop(self, "multi_in1")
-
+        layout.prop(self, "placement")
 
     def draw_label(self):
         note='('+self.note+')'
         if self.note=='':
             note=''
+        if self.placement!="null":
+            return "ag"+str(self.index)+'  '+note+' '+F'[{self.placement}]'
         return "ag"+str(self.index)+'  '+note
     
     loop_level: bpy.props.IntProperty(name='loop_level',default=0)
@@ -283,7 +290,7 @@ class AG_INNode(Node, MyCustomTreeNode):
     
     
     
-    def print_xml(self,file,real_index):
+    def print_xml(self,file):
         self.reg0=self.inputs[0].reg_val
         self.reg1=self.inputs[1].reg_val
         self.reg2=self.inputs[2].reg_val
@@ -296,16 +303,31 @@ class AG_INNode(Node, MyCustomTreeNode):
         if self.inputs['in0'].is_linked:
             in0_type=self.inputs['in0']. default_value.type
             in0_index=self.inputs['in0']. default_value.index
-            in0=F'<input type="{ type_change[in0_type]}" index="{in0_index}" port="0"/>'
+            in0_port=self.inputs['in0'].default_value.port
+            if(in0_type=="AG_IN" ):
+                rdfifo_start=self.inputs['in0'].links[0].from_socket.node.rdfifo_start
+                in0=F'''<input type="{type_change[in0_type]}" index="{rdfifo_start+in0_port}" port="{self.inputs['in0'].rdfifo_port}"/>'''
+            else:
+                in0=F''' <input type="{type_change[in0_type]}" index="{in0_index}" port="0"/>'''
             
         if self.inputs['in1'].is_linked:
             in1_type=self.inputs['in1']. default_value.type
             in1_index=self.inputs['in1']. default_value.index
-            in1=F'<input type="{ type_change[in1_type]}" index="{in1_index}" port="0"/>'
+            in1_port=self.inputs['in1'].default_value.port
+            if(in1_type=="AG_IN" ):
+                rdfifo_start=self.inputs['in1'].links[0].from_socket.node.rdfifo_start
+                in1=F'''<input type="{type_change[in1_type]}" index="{rdfifo_start+in1_port}" port="{self.inputs['in1'].rdfifo_port}"/>'''
+            else:
+                in1=F'''<input type="{type_change[in1_type]}" index="{in1_index}" port="0"/>'''
         if self.inputs['in2'].is_linked:
             in2_type=self.inputs['in2']. default_value.type
             in2_index=self.inputs['in2']. default_value.index
-            in2=F'<input type="{ type_change[in2_type]}" index="{in2_index}" port="0"/>'
+            in2_port=self.inputs['in2'].default_value.port
+            if(in2_type=="AG_IN" ):
+                rdfifo_start=self.inputs['in2'].links[0].from_socket.node.rdfifo_start
+                in2=F'''<input type="{type_change[in2_type]}" index="{rdfifo_start+in2_port}" port="{self.inputs['in2'].rdfifo_port}"/>'''
+            else:
+                in2=F'''<input type="{type_change[in2_type]}" index="{in2_index}" port="0"/>'''
         
         buffer0_constant="false"
         if self.loop_level>self.inputs['in0']. default_value.loop_level or (self.inputs['in0'].is_linked==False and self.inputs['in0'].reg_val!='null'):
@@ -339,10 +361,10 @@ class AG_INNode(Node, MyCustomTreeNode):
         if(self.is_padding):
             padding_str=F''' 
     <padding in0L="{in0LU_l}" in0U="{in0LU_u}" in1L="{in1LU_l}" in1U="{in1LU_u}" in2L="{in2LU_l}" in2U="{in2LU_u}"/>'''
-        times_index=str(self.index)
+        times_index=str(self.rdfifo_start)
         for i in range(len(self.outputs)-1):
               times_index+='_'
-              times_index+=str(self.index+i+1) 
+              times_index+=str(self.rdfifo_start+i+1) 
         branch_in0,branch_in1,branch_in2=self.branch.split()
         
         reg0_xml=self.inputs[0].reg_val
@@ -350,12 +372,18 @@ class AG_INNode(Node, MyCustomTreeNode):
         reg2_xml=self.inputs[2].reg_val
         if(self.inputs[0].is_linked):
             reg0_xml='null'
+        elif reg0_xml=='null':
+            reg0_xml='0'
         if(self.inputs[1].is_linked):
             reg1_xml='null'
+        elif reg1_xml=='null':
+            reg1_xml='0'
         if(self.inputs[2].is_linked):
             reg2_xml='null'
+        elif reg2_xml=='null':
+            reg2_xml='0'
         xml_str=F'''
-<node type="ag" index="{real_index}" domain="1" ag_mode="s2p" opcode="joint" buffer0_constant="{buffer0_constant}" buffer1_constant="{buffer1_constant}" buffer2_constant="{buffer2_constant}">
+<node type="ag" index="{self.index}" domain="1" ag_mode="s2p" opcode="joint" buffer0_constant="{buffer0_constant}" buffer1_constant="{buffer1_constant}" buffer2_constant="{buffer2_constant}">
     {in0}
     {in1}
     {in2}
@@ -365,7 +393,7 @@ class AG_INNode(Node, MyCustomTreeNode):
     <stride value="{self.stride_str}"/>
     <times value="{self.times}" index="{times_index}"/>{padding_str}
     <branch in0="{branch_in0}" in1="{branch_in1}" in2="{branch_in2}"/>
-    <placement cord="[6, 18]"/>
+    <placement cord="[{self.placement}]"/>
 </node>
 '''
         note_str=F'''<!-- {self.note} -->'''
@@ -375,11 +403,15 @@ class AG_INNode(Node, MyCustomTreeNode):
         access_inner="false"
         if(self.max_loop_level==self.loop_level and self.catalogue!='b'):
                access_inner="true"
-               
+        #生成fifo的placement
+        fifo_cords=self.fifo_placement.split('_')      
+        if(len(fifo_cords)<self.times):
+            fifo_cords=["null,null"]*self.times
+             
         for i in range(self.times):
             rdfifo_str=F'''
-<node type="rdfifo" index="{self.index+i}" catalogue="{self.catalogue}" access_inner="{access_inner}" domain="2" size="1">
-        <placement cord="[0, 0]"/>
+<node type="rdfifo" index="{self.rdfifo_start+i}" catalogue="{self.catalogue}" access_inner="{access_inner}" domain="2" size="2">
+        <placement cord="[{fifo_cords[i]}]"/>
 </node>'''
             file.write(rdfifo_str)
         file.write('\n')
@@ -437,7 +469,7 @@ class AG_OUTNode(Node, MyCustomTreeNode):
     reg2: bpy.props.StringProperty(name='reg2',default='null')
     note: bpy.props.StringProperty(name='note')
     
-    
+    opcode: bpy.props.StringProperty(name='opcode',default="nop")
     priority:bpy.props.IntProperty(name='priority',default=0)
     direction:bpy.props.EnumProperty(
         name='direction',
@@ -497,6 +529,11 @@ class AG_OUTNode(Node, MyCustomTreeNode):
     max_loop_level:bpy.props.IntProperty(name='max_loop_level',default=0)
     
     ######################################################################3
+    placement: bpy.props.StringProperty(name='placement',default='null')
+    
+    fifo_placement:bpy.props.StringProperty(name='fifo_placement',default='')
+    
+    wrfifo_start:bpy.props.IntProperty(name='wrfifo_start',default=0)
     def init(self, context):
         self.inputs.new('_Port', "in0")
         self.inputs.new('_Port', "in1")
@@ -526,7 +563,7 @@ class AG_OUTNode(Node, MyCustomTreeNode):
         layout.prop(self,"stride_str")
         layout.prop(self,"direction")
         layout.prop(self,"branch")
-        
+        layout.prop(self,"opcode")
         layout.prop(self, "show_spm")
         if(self.show_spm== True):
             layout.prop(self, "ddr_addr")
@@ -543,7 +580,7 @@ class AG_OUTNode(Node, MyCustomTreeNode):
             layout.prop(self, "bank_num")
             layout.prop(self, "multi_in0")
             layout.prop(self, "multi_in1")
-    
+        layout.prop(self, "placement")
        
 
     def draw_buttons_ext(self, context, layout):
@@ -558,7 +595,7 @@ class AG_OUTNode(Node, MyCustomTreeNode):
         layout.prop(self,"stride_str")
         layout.prop(self,"direction")
         layout.prop(self,"branch")
-        
+        layout.prop(self,"opcode")
         layout.prop(self, "show_spm")
         if(self.show_spm== True):
             layout.prop(self, "ddr_addr")
@@ -575,11 +612,14 @@ class AG_OUTNode(Node, MyCustomTreeNode):
             layout.prop(self, "bank_num")
             layout.prop(self, "multi_in0")
             layout.prop(self, "multi_in1")
+        layout.prop(self, "placement")
 
     def draw_label(self):
         note='('+self.note+')'
         if self.note=='':
             note=''
+        if self.placement!="null":
+            return "ag"+str(self.index)+'  '+note+' '+F'[{self.placement}]'
         return "ag"+str(self.index)+'  '+note
     
     loop_level: bpy.props.IntProperty(name='loop_level',default=0)
@@ -640,7 +680,7 @@ class AG_OUTNode(Node, MyCustomTreeNode):
     
     
     
-    def print_xml(self,file,port_index):
+    def print_xml(self,file):
         self.reg0=self.inputs[0].reg_val
         self.reg1=self.inputs[1].reg_val
         self.reg2=self.inputs[2].reg_val
@@ -653,15 +693,31 @@ class AG_OUTNode(Node, MyCustomTreeNode):
         if self.inputs['in0'].is_linked:
             in0_type=self.inputs['in0']. default_value.type
             in0_index=self.inputs['in0']. default_value.index
-            in0=F'<input type="{ type_change[in0_type]}" index="{in0_index}" port="0"/>'
+            in0_port=self.inputs['in0'].default_value.port
+            if(in0_type=="AG_IN" ):
+                    rdfifo_start=self.inputs['in0'].links[0].from_socket.node.rdfifo_start
+                    in0=F'''<input type="{type_change[in0_type]}" index="{rdfifo_start+in0_port}" port="{self.inputs['in0'].rdfifo_port}"/>'''
+            else:
+                    in0=F'''<input type="{type_change[in0_type]}" index="{in0_index}" port="0"/>'''
+            
         if self.inputs['in1'].is_linked:
             in1_type=self.inputs['in1']. default_value.type
             in1_index=self.inputs['in1']. default_value.index
-            in1=F'<input type="{ type_change[in1_type]}" index="{in1_index}" port="0"/>'
+            in1_port=self.inputs['in1'].default_value.port
+            if(in1_type=="AG_IN" ):
+                    rdfifo_start=self.inputs['in1'].links[0].from_socket.node.rdfifo_start
+                    in1=F'''<input type="{type_change[in1_type]}" index="{rdfifo_start+in1_port}" port="{self.inputs['in1'].rdfifo_port}"/>'''
+            else:
+                    in1=F'''<input type="{type_change[in1_type]}" index="{in1_index}" port="0"/>'''
         if self.inputs['in2'].is_linked:
             in2_type=self.inputs['in2']. default_value.type
             in2_index=self.inputs['in2']. default_value.index
-            in2=F'<input type="{ type_change[in2_type]}" index="{in2_index}" port="0"/>'
+            in2_port=self.inputs['in2'].default_value.port
+            if(in2_type=="AG_IN" ):
+                    rdfifo_start=self.inputs['in2'].links[0].from_socket.node.rdfifo_start
+                    in2=F'''<input type="{type_change[in2_type]}" index="{rdfifo_start+in2_port}" port="{self.inputs['in2'].rdfifo_port}"/>'''
+            else:
+                    in2=F'''<input type="{type_change[in2_type]}" index="{in2_index}" port="0"/>'''
         
         buffer0_constant="false"
         if self.loop_level>self.inputs['in0']. default_value.loop_level or (self.inputs['in0'].is_linked==False and self.inputs['in0'].reg_val!='null'):
@@ -678,10 +734,10 @@ class AG_OUTNode(Node, MyCustomTreeNode):
         
        
        
-        times_index=str(port_index)
+        times_index=str(self.wrfifo_start)
         for i in range(len(self.inputs)-3-1):
               times_index+='_'
-              times_index+=str(port_index+i+1) 
+              times_index+=str(self.wrfifo_start+i+1) 
         branch_in0,branch_in1,branch_in2=self.branch.split()
         
         
@@ -690,10 +746,16 @@ class AG_OUTNode(Node, MyCustomTreeNode):
         reg2_xml=self.inputs[2].reg_val
         if(self.inputs[0].is_linked):
             reg0_xml='null'
+        elif reg0_xml=='null':
+            reg0_xml='0'
         if(self.inputs[1].is_linked):
             reg1_xml='null'
+        elif reg1_xml=='null':
+            reg1_xml='0'
         if(self.inputs[2].is_linked):
             reg2_xml='null'
+        elif reg2_xml=='null':
+            reg2_xml='0'
         xml_str=F'''
 <node type="ag" index="{self.index}" domain="1" ag_mode="p2s" opcode="joint" buffer0_constant="{buffer0_constant}" buffer1_constant="{buffer1_constant}" buffer2_constant="{buffer2_constant}">
     {in0}
@@ -705,7 +767,7 @@ class AG_OUTNode(Node, MyCustomTreeNode):
     <stride value="{self.stride_str}"/>
     <times value="{self.times}" index="{times_index}"/>
     <branch in0="{branch_in0}" in1="{branch_in1}" in2="{branch_in2}"/>
-    <placement cord="[0, 0]"/>
+    <placement cord="[{self.placement}]"/>
 </node>
 '''
         note_str=F'''
@@ -713,6 +775,10 @@ class AG_OUTNode(Node, MyCustomTreeNode):
         access_inner="false"
         if(self.max_loop_level==self.loop_level):
                access_inner="true"
+        fifo_cords=self.fifo_placement.split('_') 
+        print(fifo_cords)     
+        if(len(fifo_cords)<self.times):
+            fifo_cords=["null,null"]*self.times
         for i in range(self.times):
             wrfifo_in=''
             if not self.inputs[i+3].is_linked:
@@ -721,13 +787,16 @@ class AG_OUTNode(Node, MyCustomTreeNode):
             else:
                 type=self.inputs[i+3].default_value.type
                 if type=="AG_IN" :
-                    wrfifo_in=F'<input type="{type_change[type]}" index="{self.inputs[i+3].default_value.index+self.inputs[i+3].default_value.port}" port="0"/>'
+                    wrfifo_in=F'''
+                    <input type="{type_change[type]}" index="{self.inputs[i+3].default_value.index+self.inputs[i+3].default_value.port}" port="{self.inputs[i+3].rdfifo_port}"/>'''
+                elif type=="WRFIFO":
+                    wrfifo_in=self.inputs[i+3].links[0].from_socket.node.wrfifo_input
                 else:
-                    wrfifo_in=F'<input type="{type_change[self.inputs[i+3].default_value.type]}" index="{self.inputs[i+3].default_value.index}" port="0"/>'
+                    wrfifo_in=F'''
+                    <input type="{type_change[self.inputs[i+3].default_value.type]}" index="{self.inputs[i+3].default_value.index}" port="0"/>'''
             wrfifo_str=F'''
-<node type="wrfifo" index="{port_index+i}"  access_inner="{access_inner}" domain="2" size="2">
-        {wrfifo_in}
-        <placement cord="[0, 0]"/>
+<node type="wrfifo" index="{self.wrfifo_start+i}"  opcode="{self.opcode}" access_inner="{access_inner}" domain="2" size="2">{wrfifo_in}
+        <placement cord="[{fifo_cords[i]}]"/>
 </node>'''
             file.write(wrfifo_str)
             

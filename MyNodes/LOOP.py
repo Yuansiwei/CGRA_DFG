@@ -48,7 +48,7 @@ class LOOPNode(Node, MyCustomTreeNode):
     note: bpy.props.StringProperty(name='note')
     need_step:bpy.props.BoolProperty(name='need_step',default=False)
         
-
+    placement: bpy.props.StringProperty(name='placement',default='null')
     def init(self, context):
         self.inputs.new('_Port', "in0")
         self.inputs.new('_Port', "in1")
@@ -76,6 +76,7 @@ class LOOPNode(Node, MyCustomTreeNode):
         if (is_refine) or self.need_step==False :    
             layout.prop(self, "start")
         layout.prop(self, "end")
+        layout.prop(self, "placement")
 
     def draw_buttons_ext(self, context, layout):
         is_refine=context.scene.my_prop.is_refine
@@ -89,12 +90,15 @@ class LOOPNode(Node, MyCustomTreeNode):
         if (is_refine) or self.need_step==False :    
             layout.prop(self, "start")
         layout.prop(self, "end")
+        layout.prop(self, "placement")
 
 
     def draw_label(self):
         note='('+self.note+')'
         if self.note=='':
             note=''
+        if self.placement!="null":
+            return "pe"+str(self.index)+'  '+note+' '+F'[{self.placement}]'
         return "pe"+str(self.index)+'  '+note
     
     loop_level: bpy.props.IntProperty(name='loop_level',default=0)
@@ -183,7 +187,8 @@ class LOOPNode(Node, MyCustomTreeNode):
             in0=F'<input type="{type_change[in0_type]}" index="{in0_index}" port="0"/>'
             if(in0_type=="AG_IN" ):
                 in0_port=self.inputs['in0']. default_value.port
-                in0=F'<input type="{type_change[in0_type]}" index="{in0_index+in0_port}" port="0"/>'
+                rdfifo_start=self.inputs['in0'].links[0].from_socket.node.rdfifo_start
+                in0=F'<input type="{type_change[in0_type]}" index="{rdfifo_start+in0_port}" port="0"/>'
         if self.inputs['in1'].is_linked:
             buffer1_from="in1"
             in1_type=self.inputs['in1']. default_value.type
@@ -191,7 +196,8 @@ class LOOPNode(Node, MyCustomTreeNode):
             in1=F'<input type="{type_change[in1_type]}" index="{in1_index}" port="0"/>'
             if(in1_type=="AG_IN" ):
                 in1_port=self.inputs['in1']. default_value.port
-                in1=F'<input type="{type_change[in1_type]}" index="{in1_index+in1_port}" port="0"/>'
+                rdfifo_start=self.inputs['in1'].links[0].from_socket.node.rdfifo_start
+                in1=F'<input type="{type_change[in1_type]}" index="{rdfifo_start+in1_port}" port="0"/>'
         if self.inputs['in2'].is_linked:
             buffer2_from="in2"
             in2_type=self.inputs['in2']. default_value.type
@@ -199,7 +205,8 @@ class LOOPNode(Node, MyCustomTreeNode):
             in2=F'<input type="{type_change[in2_type]}" index="{in2_index}" port="0"/>'
             if(in2_type=="AG_IN" ):
                 in2_port=self.inputs['in2']. default_value.port
-                in2=F'<input type="{type_change[in2_type]}" index="{in2_index+in2_port}" port="0"/>'
+                rdfifo_start=self.inputs['in2'].links[0].from_socket.node.rdfifo_start
+                in2=F'<input type="{type_change[in2_type]}" index="{rdfifo_start+in2_port}" port="0"/>'
             
         loop_control="loop"    
         if input_count==0 and is_refine==0:
@@ -221,7 +228,7 @@ class LOOPNode(Node, MyCustomTreeNode):
     {in2}
     <inbuffer value0="{self.step}" value1="{self.start}" value2="{self.end}"/>
     <outbuffer value="{self.loop_level}"/>
-    <placement cord="[1, 3]"/>
+    <placement cord="[{self.placement}]"/>
 </node>
 '''
         else:
@@ -243,7 +250,7 @@ class LOOPNode(Node, MyCustomTreeNode):
     <reg value="{reg0}"/>
     <reg value="null"/>
     <reg value="{self.end}"/>
-    <placement cord="[1, 3]"/>
+    <placement cord="[{self.placement}]"/>
 </node>
 '''
         note_str=F'''<!-- {self.note} -->'''

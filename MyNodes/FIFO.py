@@ -34,11 +34,36 @@ class FIFONode(Node, MyCustomTreeNode):
             new_node=item.to_socket.node
             new_node.self_update() 
         
-    
+    def input_size_update(self, context):
+        if(self.input_size>len(self.inputs)):
+            start=len(self.inputs)
+            for i in range(self.input_size-len(self.inputs)):
+                self.inputs.new('_Port', "in"+str(start))
+                self.inputs["in"+str(start)].belong_to_LOOP=True 
+                start+=1
+        elif  self.input_size<len(self.inputs):
+            start=self.input_size 
+            for i in range(len(self.inputs)-self.input_size):
+                self.inputs.remove(self.inputs["in"+str(start)])    
+                start+=1  
+    def mode_update(self,context):
+        self.self_update()
+                     
     index: bpy.props.IntProperty(name='fifo index',default=0,update=out_update)
     note: bpy.props.StringProperty(name='note')
+    mode:bpy.props.EnumProperty(
+        name='mode',
+        items=(
+                ('default', 'default', 'default'),
+                ('WRFIFO', 'WRFIFO', 'WRFIFO'),
+                ('Large', 'Large', 'Large')),
+        default='default',update=mode_update)
+    input_size: bpy.props.IntProperty(name='input_size',default=1,update=input_size_update,min=1,max=16)    
+    placement: bpy.props.StringProperty(name='placement',default='null')
     
-
+    wrfifo_input: bpy.props.StringProperty(name='wrfifo_input',default="this is not wrfifo")
+    
+    link_to_AG_OUT:bpy.props.BoolProperty(name='link_to_AG_OUT', default=False)
     def init(self, context):
         self.inputs.new('_Port', "in0")
         
@@ -46,7 +71,7 @@ class FIFONode(Node, MyCustomTreeNode):
         self.outputs.new('_Port_Out', "out")
         #self.outputs['out'].default_value = PortData()
         
-
+    
     def copy(self, node):
         print("Copying from node ", node)
 
@@ -57,20 +82,33 @@ class FIFONode(Node, MyCustomTreeNode):
         layout.label(text='loop_level= '+str(self.loop_level))
         layout.label(text='delay_level= '+str(self.delay_level))
         layout.prop(self, "index")
+        layout.prop(self, "input_size")
+        if(self.link_to_AG_OUT):
+            layout.prop(self, "mode")
+        layout.prop(self, "placement")
         
         
 
     def draw_buttons_ext(self, context, layout):
-        
+        layout.label(text='loop_level= '+str(self.loop_level))
+        layout.label(text='delay_level= '+str(self.delay_level))
         layout.prop(self, "index")
+        layout.prop(self, "input_size")
+        if(self.link_to_AG_OUT):
+            layout.prop(self, "mode")
+        layout.prop(self, "placement")
         
-
-
+        
     def draw_label(self):
         note='('+self.note+')'
         if self.note=='':
             note=''
-        return "fifo"+str(self.index)+'  '+note
+        if(self.mode=="WRFIFO"):
+            return "wrfifo"+str(self.index)+' '+note
+        elif self.placement!='null':
+            return "fifo"+str(self.index)+'  '+note+' '+F'[{self.placement}]'
+        else:
+            return "fifo"+str(self.index)+'  '+note
 
     loop_level: bpy.props.IntProperty(name='loop_level',default=0)
     delay_level: bpy.props.IntProperty(name='delay_level',default=0)
@@ -103,6 +141,13 @@ class FIFONode(Node, MyCustomTreeNode):
                         if hash[new_node]==link_count:
                             node_queue.put(new_node)
     def self_update(self):
+        link_to_AG_OUT=False
+        for link in self.outputs['out'].links:
+            if(link.to_socket.node.bl_label == "AG_OUT"):
+                link_to_AG_OUT=True
+                break;    
+        self.link_to_AG_OUT=link_to_AG_OUT
+        
         for port in self.inputs:
             port.belong_to_LOOP=True
         loop_level=0
@@ -115,14 +160,17 @@ class FIFONode(Node, MyCustomTreeNode):
             self.note=''    
             
         self.loop_level=loop_level
-        self.delay_level=delay_level+1
+        self.delay_level=delay_level+(self.mode!="WRFIFO" or not(self.link_to_AG_OUT))
         domain=0
         for input in self.inputs:
             domain=max(input.default_value.domain,domain)
         
         for i in range(len(self.outputs['out'].links)):
             self.outputs['out'].links[i].to_socket.default_value.index=self.index
-            self.outputs['out'].links[i].to_socket.default_value.type='FIFO'
+            if self.mode=="WRFIFO" and self.link_to_AG_OUT:
+                self.outputs['out'].links[i].to_socket.default_value.type='WRFIFO'
+            else:
+                self.outputs['out'].links[i].to_socket.default_value.type='FIFO'
             self.outputs['out'].links[i].to_socket.default_value.loop_level=self.loop_level
             self.outputs['out'].links[i].to_socket.default_value.delay_level=self.delay_level
             self.outputs['out'].links[i].to_socket.default_value.domain=domain
@@ -133,17 +181,31 @@ class FIFONode(Node, MyCustomTreeNode):
     
     def print_xml(self,file): 
 
-        in0='<input type="null"/>'
+        in0=''
 
         type_change={'LOOP':'pe','PE':'pe','LOAD':'ls','SAVE':'ls','AG_IN':'rdfifo','AG_OUT':'wrfifo','TRANS':'pe','FIFO':'fifo'}
-        if self.inputs['in0'].is_linked:
-            in0_type=self.inputs['in0']. default_value.type
-            in0_index=self.inputs['in0']. default_value.index
-            in0=F'<input type="{type_change[in0_type]}" index="{in0_index}" port="0"/>'
-            in0_port=self.inputs['in0']. default_value.port
-            if(in0_type=="AG_IN" ):
-                in0=F'<input type="{type_change[in0_type]}" index="{in0_index+in0_port}" port="0"/>'
-        
+        for input in  self.inputs:
+            if input.is_linked:
+                input_type=input. default_value.type
+                input_index=input. default_value.index
+                
+                input_port=input.default_value.port
+                if(input_type=="AG_IN" ):
+                    rdfifo_start=input.links[0].from_socket.node.rdfifo_start
+                    in0+=F'''
+    <input type="{type_change[input_type]}" index="{rdfifo_start+input_port}" port="{input.rdfifo_port}"/>'''
+                else:
+                    in0+=F'''
+    <input type="{type_change[input_type]}" index="{input_index}" port="0"/>'''
+        if in0=='':
+            in0='''
+            <input type="null"/>'''
+        if self.mode=="WRFIFO" and self.link_to_AG_OUT:
+            self.wrfifo_input=in0
+            return
+        else:
+            self.wrfifo_input='''
+            this is not wrfifo'''
         domain=0
         for input in self.inputs:
             domain=max(input.default_value.domain,domain)
@@ -161,10 +223,14 @@ class FIFONode(Node, MyCustomTreeNode):
         partition_times=F'''partition_times="{partition_times}"'''
         if(domain!=2):
             partition_times=""
+            
+        fifo_size=5
+        if(self.mode=="Large"):
+            fifo_size=20
+        
         xml_str=F'''
-<node type="fifo" index="{self.index}" domain="{domain}" size="5" {partition_times}>
-    {in0}
-    <placement cord="[10, 11]"/>
+<node type="fifo" index="{self.index}" domain="{domain}" size="{fifo_size}" {partition_times}>{in0}
+    <placement cord="[{self.placement}]"/>
 </node>
 '''
         

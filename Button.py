@@ -124,7 +124,64 @@ class OT_std_version_transfer(bpy.types.Operator, ImportHelper):
                 domain2_partiton.attrib['physical_space']="16"
                 root.insert(1,domain2_partiton);
         return {'FINISHED'}    
+
+####xml 读取，placement载入
+class OT_LoadPlacement(bpy.types.Operator, ImportHelper): 
+    bl_idname = "ysw_operator.placement" 
+    bl_label = "read placement" 
+    bl_description = "读取节点布局"
+    filter_glob: bpy.props.StringProperty( default='*.xml', options={'HIDDEN'} ) 
     
+    def execute(self, context): 
+        filename, extension = os.path.splitext(self.filepath)
+        #建立已有节点字典
+        valid_type={"pe","ls","fifo","ag","rdfifo","wrfifo"}
+        type_change={"PE":"pe","AG_IN":"ag","AG_OUT":"ag","FIFO":"fifo","LOOP":"pe","LOAD":"ls","SAVE":"ls"}
+        Tree_key=bpy.context.space_data.node_tree.name
+        node_table={}
+        for node in bpy.data.node_groups[Tree_key].nodes:
+                node_table[type_change[node.bl_label]+str(node.index)]=node
+              
+        
+        xml_node_table={}
+        #填充placement
+        if extension!= ".xml":
+            return {'FINISHED'}
+        tree = xmlTree.parse(self.filepath)
+        root = tree.getroot() 
+      
+        for xml_node in root:
+            if xml_node.tag!='node'or xml_node.attrib["type"]not in valid_type:
+                continue
+            xml_node_table[xml_node.attrib["type"]+xml_node.attrib["index"]]=xml_node
+                
+        for key in node_table.keys():
+            
+            if key in xml_node_table.keys():
+                node=node_table[key]
+                xml_node=xml_node_table[key]
+                
+                child=xml_node.find("placement")
+                if child!=None:
+                    node.placement=child.attrib["cord"].strip(" []")
+                if node.bl_label=="AG_IN"or node.bl_label=="AG_OUT" :
+                    node.fifo_placement=''
+                    child=xml_node.find("times")
+                    vector_fifo=child.attrib["index"].split('_')
+                    fifo_type=None
+                    if node.bl_label=="AG_IN":
+                        fifo_type="rdfifo"
+                    else:
+                        fifo_type="wrfifo"
+                    for index in vector_fifo:
+                        fifo_xml_node=xml_node_table[fifo_type+index]
+                        if node.bl_label=="AG_IN" and "catalogue" in fifo_xml_node.attrib.keys():
+                            node.catalogue=fifo_xml_node.attrib["catalogue"]
+                        fifo_placement=fifo_xml_node.find("placement").attrib["cord"].strip(" []")
+                        if(node.fifo_placement!=''):
+                            node.fifo_placement+='_'
+                        node.fifo_placement+=fifo_placement
+        return {'FINISHED'}
 ####xml 读取，DFG生成
 class OT_TestOpenFilebrowser(bpy.types.Operator, ImportHelper): 
     bl_idname = "ysw_operator.open_filebrowser" 
@@ -133,25 +190,30 @@ class OT_TestOpenFilebrowser(bpy.types.Operator, ImportHelper):
     filter_glob: bpy.props.StringProperty( default='*.xml', options={'HIDDEN'} ) 
     
     def execute(self, context): 
-        """Do something with the selected file(s).""" 
         filename, extension = os.path.splitext(self.filepath)
         #print (extension)
         if extension!= ".xml":
             return {'FINISHED'}
         tree = xmlTree.parse(self.filepath)
         root = tree.getroot()
-        #for node in root:
-            #print(node.attrib)
+
         bpy.ops.node.new_node_tree()
         nodes=bpy.context.space_data.node_tree.nodes
         bpy.context.space_data.node_tree.active=nodes
         node_table={}
         ag_rdfifo_table={}
         ag_wrfifo_table={}
+        lsu_node=None
+        spm_node=None
         for xml_node in root:
-            if xml_node.tag!='node':
+            if xml_node.tag!='node'or xml_node.attrib["type"]=="paraset" or xml_node.attrib["type"]=="bus":
                 continue
-            #print(xml_node.attrib)
+            elif xml_node.attrib["type"]=="lsu" :
+                lsu_node=xml_node
+                continue
+            elif xml_node.attrib["type"]=="scratchpad" :
+                spm_node=xml_node
+                continue
             if  xml_node.attrib["type"]=="pe" :
                 if xml_node.attrib["loop_control"]=="sync_loop" or xml_node.attrib["loop_control"]=="loop" or xml_node.attrib["loop_control"]=="inner_loop_sync"or xml_node.attrib["loop_control"]=="inner_loop_ini_sync" or xml_node.attrib["loop_control"]=="inner_loop"or xml_node.attrib["loop_control"]=="inner_loop_ini" or xml_node.attrib["loop_control"]=="outermost_loop":
                     new_node=nodes.new("LOOPNode")
@@ -228,6 +290,10 @@ class OT_TestOpenFilebrowser(bpy.types.Operator, ImportHelper):
                 new_node=nodes.new("FIFONode")
                 new_node.index=int(xml_node.attrib["index"])
                 node_table["fifo"+str(new_node.index)]=new_node
+                input_size=0
+                for child in xml_node:
+                    input_size+=child.tag=="input"
+                new_node.input_size=input_size
             elif xml_node.attrib["type"]=="ls" and xml_node.attrib["ls_mode"]=="g2p":
                 new_node=nodes.new("LOADNode")
                 
@@ -285,6 +351,8 @@ class OT_TestOpenFilebrowser(bpy.types.Operator, ImportHelper):
                         new_node.in2LU=child.attrib['in2L']+' '+child.attrib['in2U']
                         if child.attrib['in0L']!='null' or  child.attrib['in0U']!='null' or child.attrib['in1L']!='null' or  child.attrib['in1U']!='null'  or child.attrib['in2L']!='null' or  child.attrib['in2U']!='null':
                             new_node.is_padding=1
+                    elif child.tag=="placement":
+                        new_node.placement=child.attrib['cord'].strip('[]')
                 node_table["ag"+str(new_node.index)]=new_node
             elif xml_node.attrib["type"]=="ag" and (xml_node.attrib["ag_mode"]=="p2s" or xml_node.attrib["ag_mode"]=="p2g"):
                 new_node=nodes.new("AG_OUTNode")
@@ -294,6 +362,9 @@ class OT_TestOpenFilebrowser(bpy.types.Operator, ImportHelper):
                         new_node.reg0=child.attrib["value0"]
                         new_node.reg1=child.attrib["value1"]
                         new_node.reg2=child.attrib["value2"]
+                        new_node.inputs[0].reg_val=child.attrib["value0"]
+                        new_node.inputs[1].reg_val=child.attrib["value1"]
+                        new_node.inputs[2].reg_val=child.attrib["value2"]
                     elif child.tag=='priority':
                         new_node.priority=int(child.attrib["value"])
                     elif child.tag=='direction':
@@ -309,7 +380,9 @@ class OT_TestOpenFilebrowser(bpy.types.Operator, ImportHelper):
                             ag_wrfifo_table['wrfifo'+index]=new_node.inputs[port_count+3]
                             port_count+=1
                     elif child.tag=='branch':  
-                        new_node.branch=child.attrib["in0"]+' '+child.attrib["in1"]+' '+child.attrib["in2"]        
+                        new_node.branch=child.attrib["in0"]+' '+child.attrib["in1"]+' '+child.attrib["in2"]
+                    elif child.tag=="placement":
+                        new_node.placement=child.attrib['cord'].strip('[]')      
                 node_table["ag"+str(new_node.index)]=new_node      
         links=bpy.context.space_data.node_tree.links
         for xml_node in root:
@@ -321,6 +394,7 @@ class OT_TestOpenFilebrowser(bpy.types.Operator, ImportHelper):
                     if(child.tag=='input'):
                         if (child.attrib['type']=='rdfifo'):
                             links.new(ag_wrfifo_table['wrfifo'+xml_node.attrib["index"]],ag_rdfifo_table['rdfifo'+child.attrib['index']])
+                            ag_wrfifo_table['wrfifo'+xml_node.attrib["index"]].rdfifo_port=int(child.attrib['port'])
                         elif(child.attrib['type']!='null'):
                             links.new(ag_wrfifo_table['wrfifo'+xml_node.attrib["index"]],node_table[child.attrib['type']+child.attrib['index']].outputs[0])
             else:    
@@ -328,9 +402,40 @@ class OT_TestOpenFilebrowser(bpy.types.Operator, ImportHelper):
                     if(child.tag=='input'):
                         if (child.attrib['type']=='rdfifo'):
                             links.new(node_table[xml_node.attrib["type"]+xml_node.attrib["index"]].inputs[input_count],ag_rdfifo_table['rdfifo'+child.attrib['index']])
+                            node_table[xml_node.attrib["type"]+xml_node.attrib["index"]].inputs[input_count].rdfifo_port=int(child.attrib['port'])
                         elif(child.attrib['type']!='null'):
                             links.new(node_table[xml_node.attrib["type"]+xml_node.attrib["index"]].inputs[input_count],node_table[child.attrib['type']+child.attrib['index']].outputs[0])
                         input_count+=1
+                        
+        for child in lsu_node:
+            if child.tag=="prefetch":
+                ag_node=node_table["ag"+child.attrib["stream_index"]]
+                ag_node.ddr_addr=child.attrib["ddr_base_addr"]
+                ag_node.size_data=child.attrib["prefetch_times"]
+                ag_node.stride_lsu=child.attrib["prefetch_stride"]
+                ag_node.cnt_lsu=child.attrib["prefetch_cnt"]
+                ag_node.is_spm=child.attrib["is_spm"]
+            elif child.tag=="writeback":
+                ag_node=node_table["ag"+child.attrib["stream_index"]]
+                ag_node.ddr_addr=child.attrib["ddr_base_addr"]
+                ag_node.size_data=child.attrib["write_times"]
+                ag_node.stride_lsu=child.attrib["write_stride"]
+                ag_node.cnt_lsu=child.attrib["write_cnt"]
+                ag_node.is_spm=child.attrib["is_spm"]
+        for child in spm_node:
+            if child.tag!="stream":
+                continue;
+            ag_node=node_table["ag"+child.attrib["stream_index"]]
+            if "pattern" in child.attrib.keys():
+                ag_node.pattern=child.attrib["pattern"]
+            if "pow2_mode" in child.attrib.keys():
+                ag_node.pow2_mode=child.attrib["pow2_mode"]
+            ag_node.row_local=child.attrib["local_row"]
+            ag_node.col_local=child.attrib["local_col"]
+            ag_node.bank_num=child.attrib["N"]
+            ag_node.multi_in0=child.attrib["multi"]
+            ag_node.multi_in1=child.attrib["stride"]
+            
         bpy.ops.ysw_operator.location()
         
         for node in nodes:
@@ -357,19 +462,24 @@ class Test_PT_HelloPanel(bpy.types.Panel):
         # 设置按钮执行的操作【填写操作的bl_idname】
         row.operator("ysw_operator.open_filebrowser")
         
+        # 创建一个行按钮
+        row = layout.row()
+        # 设置按钮执行的操作【填写操作的bl_idname】
+        row.operator("ysw_operator.placement")
+        
 ############################ xmL操作类
-class Test_OT_xml(bpy.types.Operator):
+class Test_OT_xml(bpy.types.Operator, ImportHelper):
     bl_idname = "ysw_operator.xml"
     bl_label = "xml generate"
-    bl_description = "xml文件生成"
+    bl_description = "xml插件开发测试"
     bl_options = {"REGISTER"}
-
+    filter_glob: bpy.props.StringProperty( default='*.xml', options={'HIDDEN'} ) 
     @classmethod
     def poll(cls, context):
         return True
 
     def execute(self, context):
-        fileName='xmltest.xml'
+        fileName=self.filepath
         file=open(fileName,'w')
 
         Tree_key=bpy.context.space_data.node_tree.name
@@ -416,54 +526,59 @@ class Test_OT_xml(bpy.types.Operator):
                 
         
         
-#######   partition times computation for pe and fifo in domain2;
+# #######   partition times computation for pe and fifo in domain2;  (except wrfifo and rdfifo)
 
-            pe_fifo_table={}
-            partition_times=0;
-            physical_space=0
-            for node in bpy.data.node_groups[Tree_key].nodes:
-                if node.bl_label =="FIFO" or node.bl_label=='PE':
-                    domain=0;
-                    for input in node.inputs:
-                        domain=max(input.default_value.domain,domain)
-                    if(node.bl_label =="FIFO" and node.index>=20):
-                        domain=2;
-                    if domain==2 and node not in pe_fifo_table.keys():
-                        partition_times+=1;
-                        pe_fifo_queue=Queue();
-                        pe_fifo_queue.put(node)
-                        delay_table={}
-                        while not pe_fifo_queue.empty():
-                            node_get=pe_fifo_queue.get()
-                            if(node_get.bl_label =="PE" and node_get.delay_level not in delay_table.keys()):
-                                delay_table[node_get.delay_level]=1
-                            elif node_get.bl_label =="PE":
-                                delay_table[node_get.delay_level]+=1
-                            pe_fifo_table[node_get]=partition_times
-                            node_get.partition_times=partition_times
-                            for next_input in node_get.inputs:
-                                for link in next_input.links:
-                                    node_temp=link.from_socket.node
-                                    domain_temp=0;
-                                    for input in node_temp.inputs:
-                                        domain_temp=max(input.default_value.domain,domain_temp)
-                                    if(node_temp.bl_label =="FIFO" and node_temp.index>=20):
-                                        domain_temp=2;
-                                    if domain_temp==2 and (node_temp.bl_label =="FIFO" or node_temp.bl_label=='PE') and node_temp not in pe_fifo_table.keys():
-                                        pe_fifo_queue.put(node_temp)
+#             pe_fifo_table={}
+#             partition_times=0;
+#             physical_space=0
+#             for node in bpy.data.node_groups[Tree_key].nodes:
+#                 #if node.bl_label=='PE':
+#                 if (node.bl_label =="FIFO" and (node.mode!="WRFIFO" or not node.link_to_AG_OUT)) or node.bl_label=='PE':
+#                     domain=0;
+#                     for input in node.inputs:
+#                         domain=max(input.default_value.domain,domain)
+#                         if(node.bl_label =="FIFO" and node.index>=20):
+#                           domain=2;
+#                     if domain==2 and node not in pe_fifo_table.keys():
+#                         partition_times+=1;
+#                         pe_fifo_queue=Queue();
+#                         pe_fifo_queue.put(node)
+#                         delay_table={}
+#                         pe_fifo_table[node]=1
+#                         while not pe_fifo_queue.empty():
+#                             node_get=pe_fifo_queue.get()
+#                             if(node_get.bl_label =="PE" and node_get.delay_level not in delay_table.keys()):
+#                                 delay_table[node_get.delay_level]=1
+#                             elif node_get.bl_label =="PE":
+#                                 delay_table[node_get.delay_level]+=1
+                            
+#                             node_get.partition_times=partition_times
+#                             for next_input in node_get.inputs:
+#                                 for link in next_input.links:
+#                                     node_temp=link.from_socket.node
+#                                     domain_temp=0;
+#                                     for input in node_temp.inputs:
+#                                         domain_temp=max(input.default_value.domain,domain_temp)
+#                                     if((node.bl_label =="FIFO" and (node.mode!="WRFIFO" or not node.link_to_AG_OUT)) and node_temp.index>=20):
+#                                         domain_temp=2;
+#                                     if domain_temp==2 and ((node.bl_label =="FIFO" and (node.mode!="WRFIFO" or not node.link_to_AG_OUT)) or node_temp.bl_label=='PE') and node_temp not in pe_fifo_table.keys():
+#                                         pe_fifo_queue.put(node_temp)
+#                                         pe_fifo_table[node_temp]=1
                         
-                            for next_output in node_get.outputs:
-                                for link in next_output.links:
-                                    node_temp=link.to_socket.node
-                                    domain_temp=0;
-                                    for input in node_temp.inputs:
-                                        domain_temp=max(input.default_value.domain,domain_temp)
-                                    if(node_temp.bl_label =="FIFO" and node_temp.index>=20):
-                                        domain_temp=2;
-                                    if domain_temp==2 and (node_temp.bl_label =="FIFO" or node_temp.bl_label=='PE') and node_temp not in pe_fifo_table.keys():
-                                        pe_fifo_queue.put(node_temp)
-                        for value in delay_table.values():
-                            physical_space=max(physical_space,value)
+#                             for next_output in node_get.outputs:
+#                                 for link in next_output.links:
+#                                     node_temp=link.to_socket.node
+#                                     domain_temp=0;
+#                                     for input in node_temp.inputs:
+#                                         domain_temp=max(input.default_value.domain,domain_temp)
+#                                     if((node.bl_label =="FIFO" and (node.mode!="WRFIFO" or not node.link_to_AG_OUT)) and node_temp.index>=20):
+#                                         domain_temp=2;
+#                                     if domain_temp==2 and ((node.bl_label =="FIFO" and (node.mode!="WRFIFO" or not node.link_to_AG_OUT)) or node_temp.bl_label=='PE') and node_temp not in pe_fifo_table.keys():
+#                                         pe_fifo_table[node_temp]=1
+#                                         pe_fifo_queue.put(node_temp)
+#                         #print(delay_table)
+#                         for value in delay_table.values():
+#                             physical_space=max(physical_space,value)
 
 
 
@@ -481,30 +596,28 @@ class Test_OT_xml(bpy.types.Operator):
 
 
 #######rdfifo generate     
-        AG_IN_table={}
-        port_count=0;
+        
+        rdfifo_count=0;
+        wrfifo_count=0;
         agin_vector=[]
+        agout_vector=[]
         for node in bpy.data.node_groups[Tree_key].nodes:
             if node.bl_label=='AG_IN':
                 agin_vector.append(node)
-        agin_vector.sort(key=attrgetter("index"), reverse=False)
-        for node in agin_vector:
-                        
-            AG_IN_table[node]=node.index
-            node.index=port_count
-            port_count+=len(node.outputs)
-        
-        
-        AG_OUT_port_table={}
-        agout_vector=[]
-        for node in bpy.data.node_groups[Tree_key].nodes:
-            if node.bl_label=='AG_OUT':
+            elif node.bl_label== "AG_OUT":
                 agout_vector.append(node)
+        agin_vector.sort(key=attrgetter("index"), reverse=False)
         agout_vector.sort(key=attrgetter("index"), reverse=False)
-        agout_port_count=0
-        for node in agout_vector:
-            AG_OUT_port_table[node]=agout_port_count
-            agout_port_count+=node.times
+        for node in agin_vector:                
+            node.rdfifo_start=rdfifo_count
+            rdfifo_count+=len(node.outputs)
+        
+        for node in agout_vector:                
+            node.wrfifo_start=wrfifo_count
+            wrfifo_count+=len(node.outputs)
+            
+        
+        
 
 
 
@@ -512,7 +625,7 @@ class Test_OT_xml(bpy.types.Operator):
         str=F'''<?xml version="1.0" encoding="utf-8"?>
 <Config manual_placement="true">
     <config_option function="true" parameter="true"/>
-    <domain2_partition times="{partition_times}" physical_space="{physical_space}"/>
+    <domain2_partition times="1" physical_space="[8, 8]"/>
 '''
         file.write(str)
         node_queue=Queue()
@@ -543,6 +656,7 @@ class Test_OT_xml(bpy.types.Operator):
         is_refine=context.scene.my_prop.is_refine
         
         
+        ag_list=[]
         lsu_xml=""
         spm_xml=""
         xml_hash={}
@@ -554,22 +668,19 @@ class Test_OT_xml(bpy.types.Operator):
                 node_get.print_xml(file,is_refine)
             elif node_get.bl_label=="AG_IN":
                 node_get.max_loop_level=max_loop_level
-                local_addr=int(node_get.row_local)*int(node_get.bank_sram)+int(node_get.col_local)
-                lsu_xml+=F'''     <prefetch  ddr_base_addr="{node_get.ddr_addr}"  local_base_addr="0" prefetch_times="{node_get.size_data}"  prefetch_stide="{node_get.stride_lsu}" prefetch_cnt="{node_get.cnt_lsu}" is_spm="{node_get.is_spm}" stream_index="{AG_IN_table[node_get]}"/>
-'''
-                spm_xml+=F'''     <stream stream_index="{AG_IN_table[node_get]}" mode="rd" pattern="{node_get.pattern}" pow2_mode="{node_get.pow2_mode}" local_row="{node_get.row_local}" local_col="{node_get.col_local}" multi="{node_get.multi_in0}"   stride="{node_get.multi_in1}"  N="{node_get.bank_num}"  delta="0_1_2_3_4_5_6_7_8_9_10_11_12_13_14_15" />
-'''
-                node_get.print_xml(file,AG_IN_table[node_get])
+                #local_addr=int(node_get.row_local)*int(node_get.bank_sram)+int(node_get.col_local)
+                ag_list.append(node_get)
+                
+                
+                node_get.print_xml(file)
             elif node_get.bl_label=="AG_OUT":
                 node_get.max_loop_level=max_loop_level
-                local_addr=int(node_get.row_local)*int(node_get.bank_sram)+int(node_get.col_local)
-                lsu_xml+=F'''     <writeback  ddr_base_addr="{node_get.ddr_addr}"  local_base_addr="0" write_times="{node_get.size_data}"  write_stide="{node_get.stride_lsu}" write_cnt="{node_get.cnt_lsu}" is_spm="{node_get.is_spm}" stream_index="{node_get.index}"/>
-'''
-                spm_xml+=F'''     <stream stream_index="{node_get.index}" mode="wr" pattern="{node_get.pattern}" pow2_mode="{node_get.pow2_mode}" local_row="{node_get.row_local}" local_col="{node_get.col_local}" multi="{node_get.multi_in0}"   stride="{node_get.multi_in1}"  N="{node_get.bank_num}"  delta="0_1_2_3_4_5_6_7_8_9_10_11_12_13_14_15" />
-'''
-                node_get.print_xml(file,AG_OUT_port_table[node_get])
+                #local_addr=int(node_get.row_local)*int(node_get.bank_sram)+int(node_get.col_local)
+                ag_list.append(node_get)
+                
+                node_get.print_xml(file)
                 for i in range(node_get.times):
-                    bus+=F'wrfifo.{AG_OUT_port_table[node_get]+i}.0_'
+                    bus+=F'wrfifo.{node_get.wrfifo_start+i}.0_'
                 
                     
             else:
@@ -587,33 +698,38 @@ class Test_OT_xml(bpy.types.Operator):
                                 link_count+=1
                         if xml_hash[new_node]==link_count:
                             node_queue.put(new_node)
-            
-        
-        
-        
+
+#对ag 节点作 ag_index的排序
+        ag_list=sorted(ag_list, key=lambda item: item.index)        
+
+#根据stream_index顺序结果生成LSU 和 SPM       
+        for i in range(len(ag_list)):
+            if ag_list[i].bl_label=="AG_IN":
+                lsu_xml+=F'''     <prefetch  ddr_base_addr="{ag_list[i].ddr_addr}"  local_base_addr="0" prefetch_times="{ag_list[i].size_data}"  prefetch_stride="{ag_list[i].stride_lsu}" prefetch_cnt="{ag_list[i].cnt_lsu}" is_spm="{ag_list[i].is_spm}" stream_index="{ag_list[i].index}"/>
+'''
+                spm_xml+=F'''     <stream stream_index="{ag_list[i].index}" mode="rd" pattern="{ag_list[i].pattern}" pow2_mode="{ag_list[i].pow2_mode}" local_row="{ag_list[i].row_local}" local_col="{ag_list[i].col_local}" multi="{ag_list[i].multi_in0}"   stride="{ag_list[i].multi_in1}"  N="{ag_list[i].bank_num}" />
+'''         
+            else:
+                lsu_xml+=F'''     <writeback  ddr_base_addr="{ag_list[i].ddr_addr}"  local_base_addr="0" write_times="{ag_list[i].size_data}"  write_stride="{ag_list[i].stride_lsu}" write_cnt="{ag_list[i].cnt_lsu}" is_spm="{ag_list[i].is_spm}" stream_index="{ag_list[i].index}"/>
+'''
+                spm_xml+=F'''     <stream stream_index="{ag_list[i].index}" mode="wr" pattern="{ag_list[i].pattern}" pow2_mode="{ag_list[i].pow2_mode}" local_row="{ag_list[i].row_local}" local_col="{ag_list[i].col_local}" multi="{ag_list[i].multi_in0}"   stride="{ag_list[i].multi_in1}"  N="{ag_list[i].bank_num}"  />
+'''
+
         pref_num=context.scene.my_prop.pref_num
         wb_num=context.scene.my_prop.wb_num
         pref0=("null","null","null")
         pref1=("null","null","null")
         pref2=("null","null","null")
         wb0=("null","null","null")
-        pref0_line=''
-        pref1_line=''
-        pref2_line=''
-        wb0_line=''
         if pref_num>=1:
             pref0=context.scene.my_prop.pref0
-            pref0_line=F'''<prefetch ddr_base_addr="{pref0[0]}" local_base_addr="{pref0[1]}" prefetch_times="{pref0[2]}"/>'''
         if pref_num>=2:
-            pref1=context.scene.my_prop.pref1
-            pref1_line=F'''<prefetch ddr_base_addr="{pref1[0]}" local_base_addr="{pref1[1]}" prefetch_times="{pref1[2]}"/>'''
+            pref1=context.scene.my_prop.pref1 
         if pref_num>=3:    
             pref2=context.scene.my_prop.pref2
-            pref2_line=F'''<prefetch ddr_base_addr="{pref2[0]}" local_base_addr="{pref2[1]}" prefetch_times="{pref2[2]}"/>'''
         if wb_num>=1:
             wb0=context.scene.my_prop.wb0
-            wb0_line=F'''<writeback ddr_base_addr="{wb0[0]}" local_base_addr="{wb0[1]}" write_times="{wb0[2]}"/>'''
-        lsu_str=""
+            
         
         
         if not lsu_xml=='':
@@ -621,22 +737,13 @@ class Test_OT_xml(bpy.types.Operator):
 <node type="lsu" index="0">'''+'\n'+lsu_xml+'''     <placement cord="[0, 0]"/>
 </node>
 '''
-        spm_xml='''
+        if not spm_xml=='':
+            spm_xml='''
 <node type="scratchpad" index="0">'''+'\n'+spm_xml+'''     <placement cord="[0, 0]"/>
 </node>
 '''
-        if is_refine:
-            lsu_str=F'''
-<node type="lsu" index="0">
-        {pref0_line}
-        {pref1_line}
-        {pref2_line}
-        {wb0_line}
-        <placement cord="[0, 0]"/>
-</node>
-'''
-        else:
-            lsu_str=F'''
+        if not is_refine:
+            lsu_xml=F'''
 <node type="lsu" index="0">
         <prefetch0 ddr_base_addr="{pref0[0]}" local_base_addr="{pref0[1]}" prefetch_times="{pref0[2]}"/>
         <prefetch1 ddr_base_addr="{pref1[0]}" local_base_addr="{pref1[1]}" prefetch_times="{pref1[2]}"/>
@@ -645,11 +752,10 @@ class Test_OT_xml(bpy.types.Operator):
         <placement cord="[0, 0]"/>
 </node>
 '''
+            spm_xml=""
             
-        if(lsu_xml==''):
-            file.write(lsu_str)
-        else:
-            file.write(lsu_xml)
+        file.write(lsu_xml)
+
         file.write(spm_xml)        
         bus=bus.strip( '_' )
         str=F'''
@@ -659,11 +765,7 @@ class Test_OT_xml(bpy.types.Operator):
 </Config>'''
         file.write(str)
         file.close()
-############################ag index 还原
-        for node in bpy.data.node_groups[Tree_key].nodes:
-            port_count=0;
-            if node.bl_label=='AG_IN':
-                node.index=AG_IN_table[node]
+
                 
         return {"FINISHED"}
 
@@ -778,22 +880,22 @@ class Test_OT_index_add(bpy.types.Operator):
         return {"FINISHED"}
             
 
-############################ index 批处理操作面板
-class Test_PT_indexPanel(bpy.types.Panel):
-    bl_idname = "ysw_panel.index_panel"
-    bl_label = "Test index"
-    bl_space_type = "NODE_EDITOR"
-    bl_region_type = "UI"
-    bl_category = "test Addon"
+# ############################ index 批处理操作面板
+# class Test_PT_indexPanel(bpy.types.Panel):
+#     bl_idname = "ysw_panel.index_panel"
+#     bl_label = "Test index"
+#     bl_space_type = "NODE_EDITOR"
+#     bl_region_type = "UI"
+#     bl_category = "test Addon"
 
-    def draw(self, context):
-        layout = self.layout
-        my_prop=context.scene.my_prop
-        layout.row().prop(my_prop, 'index_add')
-        # 创建一个行按钮
-        row = layout.row()
-        # 设置按钮执行的操作【填写操作的bl_idname】
-        row.operator("ysw_operator.index_add")
+#     def draw(self, context):
+#         layout = self.layout
+#         my_prop=context.scene.my_prop
+#         layout.row().prop(my_prop, 'index_add')
+#         # 创建一个行按钮
+#         row = layout.row()
+#         # 设置按钮执行的操作【填写操作的bl_idname】
+#         row.operator("ysw_operator.index_add")
         
 ############################ note 批处理操作类
 class Test_OT_note(bpy.types.Operator):
@@ -882,6 +984,12 @@ class Test_PT_batch_Panel(bpy.types.Panel):
         row = layout.row()
         # 设置按钮执行的操作【填写操作的bl_idname】
         row.operator("ysw_operator.opcode")
+        
+        layout.row().prop(my_prop, 'index_add')
+        # 创建一个行按钮
+        row = layout.row()
+        # 设置按钮执行的操作【填写操作的bl_idname】
+        row.operator("ysw_operator.index_add")
         
         
 
