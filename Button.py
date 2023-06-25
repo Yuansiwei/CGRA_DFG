@@ -406,35 +406,36 @@ class OT_TestOpenFilebrowser(bpy.types.Operator, ImportHelper):
                         elif(child.attrib['type']!='null'):
                             links.new(node_table[xml_node.attrib["type"]+xml_node.attrib["index"]].inputs[input_count],node_table[child.attrib['type']+child.attrib['index']].outputs[0])
                         input_count+=1
-                        
-        for child in lsu_node:
-            if child.tag=="prefetch":
+        if (lsu_node!=None) :               
+            for child in lsu_node:
+                if child.tag=="prefetch":
+                    ag_node=node_table["ag"+child.attrib["stream_index"]]
+                    ag_node.ddr_addr=child.attrib["ddr_base_addr"]
+                    ag_node.size_data=child.attrib["prefetch_times"]
+                    ag_node.stride_lsu=child.attrib["prefetch_stride"]
+                    ag_node.cnt_lsu=child.attrib["prefetch_cnt"]
+                    ag_node.is_spm=child.attrib["is_spm"]
+                elif child.tag=="writeback":
+                    ag_node=node_table["ag"+child.attrib["stream_index"]]
+                    ag_node.ddr_addr=child.attrib["ddr_base_addr"]
+                    ag_node.size_data=child.attrib["write_times"]
+                    ag_node.stride_lsu=child.attrib["write_stride"]
+                    ag_node.cnt_lsu=child.attrib["write_cnt"]
+                    ag_node.is_spm=child.attrib["is_spm"]
+        if (spm_node!=None) : 
+            for child in spm_node:
+                if child.tag!="stream":
+                    continue;
                 ag_node=node_table["ag"+child.attrib["stream_index"]]
-                ag_node.ddr_addr=child.attrib["ddr_base_addr"]
-                ag_node.size_data=child.attrib["prefetch_times"]
-                ag_node.stride_lsu=child.attrib["prefetch_stride"]
-                ag_node.cnt_lsu=child.attrib["prefetch_cnt"]
-                ag_node.is_spm=child.attrib["is_spm"]
-            elif child.tag=="writeback":
-                ag_node=node_table["ag"+child.attrib["stream_index"]]
-                ag_node.ddr_addr=child.attrib["ddr_base_addr"]
-                ag_node.size_data=child.attrib["write_times"]
-                ag_node.stride_lsu=child.attrib["write_stride"]
-                ag_node.cnt_lsu=child.attrib["write_cnt"]
-                ag_node.is_spm=child.attrib["is_spm"]
-        for child in spm_node:
-            if child.tag!="stream":
-                continue;
-            ag_node=node_table["ag"+child.attrib["stream_index"]]
-            if "pattern" in child.attrib.keys():
-                ag_node.pattern=child.attrib["pattern"]
-            if "pow2_mode" in child.attrib.keys():
-                ag_node.pow2_mode=child.attrib["pow2_mode"]
-            ag_node.row_local=child.attrib["local_row"]
-            ag_node.col_local=child.attrib["local_col"]
-            ag_node.bank_num=child.attrib["N"]
-            ag_node.multi_in0=child.attrib["multi"]
-            ag_node.multi_in1=child.attrib["stride"]
+                if "pattern" in child.attrib.keys():
+                    ag_node.pattern=child.attrib["pattern"]
+                if "pow2_mode" in child.attrib.keys():
+                    ag_node.pow2_mode=child.attrib["pow2_mode"]
+                ag_node.row_local=child.attrib["local_row"]
+                ag_node.col_local=child.attrib["local_col"]
+                ag_node.bank_num=child.attrib["N"]
+                ag_node.multi_in0=child.attrib["multi"]
+                ag_node.multi_in1=child.attrib["stride"]
             
         bpy.ops.ysw_operator.location()
         
