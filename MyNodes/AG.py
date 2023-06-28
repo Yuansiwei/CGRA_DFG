@@ -330,13 +330,13 @@ class AG_INNode(Node, MyCustomTreeNode):
                 in2=F'''<input type="{type_change[in2_type]}" index="{in2_index}" port="0"/>'''
         
         buffer0_constant="false"
-        if self.loop_level>self.inputs['in0']. default_value.loop_level or (self.inputs['in0'].is_linked==False and self.inputs['in0'].reg_val!='null'):
+        if self.loop_level>self.inputs['in0']. default_value.loop_level or (self.inputs['in0'].is_linked==False ):
             buffer0_constant="true"
         buffer1_constant="false"
-        if self.loop_level>self.inputs['in1']. default_value.loop_level or(self.inputs['in1'].is_linked==False and self.inputs['in1'].reg_val!='null'):
+        if self.loop_level>self.inputs['in1']. default_value.loop_level or(self.inputs['in1'].is_linked==False ):
             buffer1_constant="true"
         buffer2_constant="false"
-        if self.loop_level>self.inputs['in2']. default_value.loop_level or (self.inputs['in2'].is_linked==False and self.inputs['in2'].reg_val!='null'):
+        if self.loop_level>self.inputs['in2']. default_value.loop_level or (self.inputs['in2'].is_linked==False ):
             buffer2_constant="true"
             
             
@@ -720,13 +720,13 @@ class AG_OUTNode(Node, MyCustomTreeNode):
                     in2=F'''<input type="{type_change[in2_type]}" index="{in2_index}" port="0"/>'''
         
         buffer0_constant="false"
-        if self.loop_level>self.inputs['in0']. default_value.loop_level or (self.inputs['in0'].is_linked==False and self.inputs['in0'].reg_val!='null'):
+        if self.loop_level>self.inputs['in0']. default_value.loop_level or (self.inputs['in0'].is_linked==False ):
             buffer0_constant="true"
         buffer1_constant="false"
-        if self.loop_level>self.inputs['in1']. default_value.loop_level or(self.inputs['in1'].is_linked==False and self.inputs['in1'].reg_val!='null'):
+        if self.loop_level>self.inputs['in1']. default_value.loop_level or(self.inputs['in1'].is_linked==False ):
             buffer1_constant="true"
         buffer2_constant="false"
-        if self.loop_level>self.inputs['in2']. default_value.loop_level or (self.inputs['in2'].is_linked==False and self.inputs['in2'].reg_val!='null'):
+        if self.loop_level>self.inputs['in2']. default_value.loop_level or (self.inputs['in2'].is_linked==False ):
             buffer2_constant="true"
             
             
