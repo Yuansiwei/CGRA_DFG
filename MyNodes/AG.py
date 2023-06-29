@@ -405,7 +405,7 @@ class AG_INNode(Node, MyCustomTreeNode):
                access_inner="true"
         #生成fifo的placement
         fifo_cords=self.fifo_placement.split('_')      
-        if(len(fifo_cords)<self.times or fifo_cords[0]==' '):
+        if(len(fifo_cords)<self.times or fifo_cords[0]==''):
             fifo_cords=["null,null"]*self.times
              
         for i in range(self.times):
@@ -777,7 +777,7 @@ class AG_OUTNode(Node, MyCustomTreeNode):
                access_inner="true"
         fifo_cords=self.fifo_placement.split('_') 
         print(fifo_cords)     
-        if(len(fifo_cords)<self.times or fifo_cords[0]==' '):
+        if(len(fifo_cords)<self.times or fifo_cords[0]==''):
             fifo_cords=["null,null"]*self.times
         for i in range(self.times):
             wrfifo_in=''
