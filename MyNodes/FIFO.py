@@ -83,8 +83,8 @@ class FIFONode(Node, MyCustomTreeNode):
         layout.label(text='delay_level= '+str(self.delay_level))
         layout.prop(self, "index")
         layout.prop(self, "input_size")
-        if(self.link_to_AG_OUT):
-            layout.prop(self, "mode")
+        
+        layout.prop(self, "mode")
         layout.prop(self, "placement")
         
         
@@ -94,8 +94,8 @@ class FIFONode(Node, MyCustomTreeNode):
         layout.label(text='delay_level= '+str(self.delay_level))
         layout.prop(self, "index")
         layout.prop(self, "input_size")
-        if(self.link_to_AG_OUT):
-            layout.prop(self, "mode")
+        
+        layout.prop(self, "mode")
         layout.prop(self, "placement")
         
         

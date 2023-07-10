@@ -611,11 +611,11 @@ class Test_OT_xml(bpy.types.Operator, ImportHelper):
         agout_vector.sort(key=attrgetter("index"), reverse=False)
         for node in agin_vector:                
             node.rdfifo_start=rdfifo_count
-            rdfifo_count+=len(node.outputs)
+            rdfifo_count+=node.times
         
         for node in agout_vector:                
             node.wrfifo_start=wrfifo_count
-            wrfifo_count+=len(node.outputs)
+            wrfifo_count+=node.times
             
         
         
